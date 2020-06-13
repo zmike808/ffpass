@@ -10,14 +10,14 @@ def read(fname):
 
 setup(
     name="ffpass",
-    version="0.4.9",
+    version="0.5.0",
     author="Louis Abraham",
     license="MIT",
     author_email="louis.abraham@yahoo.fr",
     description="Import and Export passwords for Firefox",
     long_description=read("README.md"),
     long_description_content_type="text/markdown",
-    url="https://github.com/louisabraham/ffpass",
+    url="https://github.com/zmike808/ffpass",
     packages=["ffpass"],
     install_requires=["pyasn1", "pycryptodome"],
     python_requires=">=3.6",

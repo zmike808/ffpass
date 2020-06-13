@@ -210,28 +210,38 @@ def decryptMoz3DES(globalSalt, masterPassword, entrySalt, encryptedData):
     return DES3.new(key, DES3.MODE_CBC, iv).decrypt(encryptedData)
 
 
-def decodeLoginData(data):
-    '''
-    SEQUENCE {
-      OCTETSTRING b'f8000000000000000000000000000001'
-      SEQUENCE {
-        OBJECTIDENTIFIER 1.2.840.113549.3.7 des-ede3-cbc
-        OCTETSTRING iv 8 bytes
-      }
-      OCTETSTRING encrypted
-    }
-    '''
-    asn1data = decoder.decode(b64decode(data))  # first base64 decoding, then ASN1DERdecode
-    key_id = asn1data[0][0].asOctets()
-    iv = asn1data[0][1][1].asOctets()
-    ciphertext = asn1data[0][2].asOctets()
-    return key_id, iv, ciphertext
-
+# def decodeLoginData(data):
+#     '''
+#     SEQUENCE {
+#       OCTETSTRING b'f8000000000000000000000000000001'
+#       SEQUENCE {
+#         OBJECTIDENTIFIER 1.2.840.113549.3.7 des-ede3-cbc
+#         OCTETSTRING iv 8 bytes
+#       }
+#       OCTETSTRING encrypted
+#     }
+#     '''
+#     asn1data = decoder.decode(b64decode(data))  # first base64 decoding, then ASN1DERdecode
+#     key_id = asn1data[0][0].asOctets()
+#     iv = asn1data[0][1][1].asOctets()
+#     ciphertext = asn1data[0][2].asOctets()
+#     return key_id, iv, ciphertext
+    # des = DES3.new(key_id, DES3.MODE_CBC, iv)
+    # return PKCS7unpad(des.decrypt(ciphertext)).decode()
+def decodeLoginData(key, data):
+#     # first base64 decoding, then ASN1DERdecode
+    asn1data, _ = der_decode(b64decode(data))
+    assert asn1data[0].asOctets() == MAGIC1
+    assert asn1data[1][0].asTuple() == MAGIC2
+    iv = asn1data[1][1].asOctets()
+    ciphertext = asn1data[2].asOctets()
+    des = DES3.new(key, DES3.MODE_CBC, iv)
+    return PKCS7unpad(des.decrypt(ciphertext)).decode()
 
 def getLoginData():
     logins = []
-    sqlite_file = args.directory + 'signons.sqlite'
-    json_file = args.directory + 'logins.json'
+    sqlite_file = args.directory.joinpath('signons.sqlite')
+    json_file = args.directory.joinpath('logins.json')
     if path.exists(json_file):  # since Firefox 32, json is used instead of sqlite3
         loginf = open(json_file, 'r').read()
         jsonLogins = json.loads(loginf)
@@ -241,7 +251,7 @@ def getLoginData():
         for row in jsonLogins['logins']:
             encUsername = row['encryptedUsername']
             encPassword = row['encryptedPassword']
-            logins.append((decodeLoginData(encUsername), decodeLoginData(encPassword), row['hostname']))
+            logins.append((row['hostname'], decodeLoginData(encUsername), decodeLoginData(encPassword)))
         return logins
     elif path.exists(sqlite_file):  # firefox < 32
         print('sqlite')
@@ -253,7 +263,7 @@ def getLoginData():
             encPassword = row[7]
             if args.verbose:
                 print(row[1], encUsername, encPassword)
-            logins.append((decodeLoginData(encUsername), decodeLoginData(encPassword), row[1]))
+            logins.append((row[1],decodeLoginData(encUsername), decodeLoginData(encPassword)))
         return logins
     else:
         print('missing logins.json or signons.sqlite')
@@ -416,7 +426,7 @@ def decryptPBE(decodedItem, masterPassword, globalSalt):
 
 MAGIC1 = b"\xf8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01"
 
-# des-ede3-cbc
+# des-ede3-cbc  1.2.840.113549.1.5.13?
 MAGIC2 = (1, 2, 840, 113_549, 3, 7)
 
 # pkcs-12-PBEWithSha1AndTripleDESCBC
@@ -431,7 +441,8 @@ class WrongPassword(Exception):
     pass
 
 
-def getKey(directory: Path, masterPassword=""):
+def getKey(directory: Path, masterPassword = ""):
+    masterPassword = masterPassword.encode()
     dbfile: Path = directory / "key4.db"
     if not dbfile.exists():
         raise NoDatabase()
@@ -461,10 +472,10 @@ def getKey(directory: Path, masterPassword=""):
             decoded_a11 = decoder.decode(a11)
             # decrypt master key
             clearText, algo = decryptPBE(decoded_a11, masterPassword, globalSalt)
-            return clearText[:24], algo
+            return clearText[:24]
         else:
             print('no saved login/password')
-    return None, None
+    return None
     # globalSalt = row[0]  # item1
     # item2 = row[1]
     # decodedItem2, _ = der_decode(item2)
@@ -563,15 +574,7 @@ def PKCS7unpad(b):
 #     return DES3.new(key, DES3.MODE_CBC, iv).decrypt(encryptedData)
 
 
-# def decodeLoginData(key, data):
-#     # first base64 decoding, then ASN1DERdecode
-#     asn1data, _ = der_decode(b64decode(data))
-#     assert asn1data[0].asOctets() == MAGIC1
-#     assert asn1data[1][0].asTuple() == MAGIC2
-#     iv = asn1data[1][1].asOctets()
-#     ciphertext = asn1data[2].asOctets()
-#     des = DES3.new(key, DES3.MODE_CBC, iv)
-#     return PKCS7unpad(des.decrypt(ciphertext)).decode()
+
 
 
 def encodeLoginData(key, data):
@@ -707,7 +710,7 @@ def main_export(args):
         # if the database is empty, we are done!
         return
     jsonLogins = getJsonLogins(args.directory)
-    logins = exportLogins(key, jsonLogins)
+    logins = exportLogins(key, jsonLogins) #getLoginData()#
     writer = csv.writer(args.to_file)
     writer.writerow(["url", "username", "password"])
     writer.writerows(logins)
